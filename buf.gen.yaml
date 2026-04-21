@@ -1,0 +1,12 @@
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+    opt:
+      - paths=source_relative
+      - Mcompute_driver.proto=github.com/zanetworker/openshell-driver-openshift/gen/computev1
+  - remote: buf.build/grpc/go
+    out: gen
+    opt:
+      - paths=source_relative
+      - Mcompute_driver.proto=github.com/zanetworker/openshell-driver-openshift/gen/computev1
