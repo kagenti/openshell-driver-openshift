@@ -231,21 +231,13 @@ func TestBuildSandboxSpec_SupervisorInitContainer(t *testing.T) {
 		t.Errorf("expected command [%s], got %v", expectedCmd, agentCmd)
 	}
 
-	// Verify security context.
+	// Verify security context (privileged mode for OpenShift).
 	secCtx := agentC["securityContext"].(map[string]interface{})
 	if secCtx["runAsUser"] != int64(0) {
 		t.Errorf("expected runAsUser 0, got %v", secCtx["runAsUser"])
 	}
-	caps := secCtx["capabilities"].(map[string]interface{})
-	addCaps := caps["add"].([]interface{})
-	expectedCaps := []string{"SYS_ADMIN", "NET_ADMIN", "SYS_PTRACE", "SYSLOG"}
-	if len(addCaps) != len(expectedCaps) {
-		t.Fatalf("expected %d capabilities, got %d", len(expectedCaps), len(addCaps))
-	}
-	for i, c := range expectedCaps {
-		if addCaps[i] != c {
-			t.Errorf("expected capability %s at index %d, got %v", c, i, addCaps[i])
-		}
+	if secCtx["privileged"] != true {
+		t.Errorf("expected privileged true, got %v", secCtx["privileged"])
 	}
 
 	// Verify volume mounts on agent container.

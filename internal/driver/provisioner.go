@@ -270,12 +270,10 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 		"name":    "agent",
 		"image":   tmpl.GetImage(),
 		"command": []interface{}{p.cfg.SupervisorMountPath + "/openshell-sandbox"},
-		"env":     buildEnvList(spec.GetEnvironment(), tmpl.GetEnvironment()),
+		"env":     p.buildFullEnvList(sb, spec, tmpl),
 		"securityContext": map[string]interface{}{
-			"runAsUser": int64(0),
-			"capabilities": map[string]interface{}{
-				"add": []interface{}{"SYS_ADMIN", "NET_ADMIN", "SYS_PTRACE", "SYSLOG"},
-			},
+			"privileged": true,
+			"runAsUser":  int64(0),
 		},
 		"volumeMounts": []interface{}{
 			map[string]interface{}{
@@ -293,6 +291,7 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 	podSpec := map[string]interface{}{
 		"initContainers": []interface{}{initContainer},
 		"containers":     []interface{}{container},
+		"serviceAccountName": "openshell-sandbox",
 		"volumes": []interface{}{
 			map[string]interface{}{
 				"name":     "supervisor-bin",
@@ -321,4 +320,40 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 			"spec": podSpec,
 		},
 	}
+}
+
+// buildFullEnvList merges spec env, template env, and gateway connection env
+// vars that the supervisor needs to connect back to the gateway.
+func (p *K8sProvisioner) buildFullEnvList(
+	sb *pb.DriverSandbox,
+	spec *pb.DriverSandboxSpec,
+	tmpl *pb.DriverSandboxTemplate,
+) []interface{} {
+	envList := buildEnvList(spec.GetEnvironment(), tmpl.GetEnvironment())
+
+	gatewayEnv := map[string]string{
+		"OPENSHELL_SANDBOX_ID":      sb.GetId(),
+		"OPENSHELL_SANDBOX":         sb.GetName(),
+		"OPENSHELL_SANDBOX_COMMAND": "sleep infinity",
+	}
+	if p.cfg.GatewayEndpoint != "" {
+		gatewayEnv["OPENSHELL_ENDPOINT"] = p.cfg.GatewayEndpoint
+	}
+	if p.cfg.SSHListenAddr != "" {
+		gatewayEnv["OPENSHELL_SSH_LISTEN_ADDR"] = p.cfg.SSHListenAddr
+	} else {
+		gatewayEnv["OPENSHELL_SSH_LISTEN_ADDR"] = "0.0.0.0:2222"
+	}
+	if p.cfg.SSHHandshakeSecret != "" {
+		gatewayEnv["OPENSHELL_SSH_HANDSHAKE_SECRET"] = p.cfg.SSHHandshakeSecret
+	}
+
+	for k, v := range gatewayEnv {
+		envList = append(envList, map[string]interface{}{
+			"name":  k,
+			"value": v,
+		})
+	}
+
+	return envList
 }

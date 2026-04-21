@@ -5,226 +5,208 @@
 ```
 Your Laptop                              OpenShift Cluster
 ┌────────────────────┐                   ┌──────────────────────────────────────┐
-│                    │                   │                                      │
-│  Go Compute Driver │ ──gRPC/UDS──┐     │  agent-sandbox-system namespace      │
-│  (openshell-driver │             │     │  ┌──────────────────────────────┐    │
-│   -openshift)      │             │     │  │ agent-sandbox-controller     │    │
-│                    │             │     │  │ (watches Sandbox CRs,        │    │
-└────────────────────┘             │     │  │  creates Pods + Services)    │    │
-                                   │     │  └──────────────┬───────────────┘    │
-                                   │     │                 │                    │
-                                   │     │  default namespace                   │
-                                   │     │  ┌──────────────▼───────────────┐    │
-                          creates   │     │  │ Sandbox CR: claude-sandbox   │    │
-                          Sandbox ──┘     │  │ labels:                      │    │
-                          CRD via         │  │   kagenti.io/type: agent     │    │
-                          K8s API         │  │   openshell.ai/managed-by    │    │
+│                    │                   │  agent-sandbox-system namespace      │
+│  openshell CLI     │                   │  ┌──────────────────────────────┐    │
+│  (v0.0.32)         │                   │  │ agent-sandbox-controller     │    │
+│                    │                   │  │ (watches Sandbox CRs,        │    │
+│  openshell         │                   │  │  creates Pods + Services)    │    │
+│   sandbox list     │                   │  └──────────────┬───────────────┘    │
+│   sandbox create   │                   │                 │                    │
+│   sandbox exec     │                   │  default namespace                   │
+│   logs             │                   │  ┌──────────────▼───────────────┐    │
+│                    │──port-forward───►│  │ Gateway + Driver Pod         │    │
+│                    │     :8080        │  │ ┌───────────┐ ┌────────────┐ │    │
+└────────────────────┘                   │  │ │ Go Driver │◄UDS►Gateway │ │    │
+                                         │  │ │ (sidecar) │ │ (forked)  │ │    │
+                                         │  │ └───────────┘ └────────────┘ │    │
                                          │  └──────────────┬───────────────┘    │
-                                         │                 │                    │
+                                         │                 │ creates            │
                                          │  ┌──────────────▼───────────────┐    │
-                                         │  │ Pod: claude-sandbox          │    │
-                                         │  │                              │    │
-                                         │  │ Init: supervisor-init        │    │
-                                         │  │   copies openshell-sandbox   │    │
-                                         │  │   from quay.io/azaalouk/     │    │
-                                         │  │   openshell-supervisor       │    │
-                                         │  │                              │    │
-                                         │  │ Container: agent             │    │
+                                         │  │ Sandbox Pod                   │    │
                                          │  │ ┌──────────────────────────┐ │    │
-                                         │  │ │ OpenShell Supervisor     │ │    │
-                                         │  │ │                          │ │    │
-                                         │  │ │ Network namespace        │ │    │
-                                         │  │ │   10.200.0.1 ↔ 10.200.0.2│ │    │
-                                         │  │ │ L7 Proxy (:3128)        │ │    │
-                                         │  │ │   OPA per-binary policy  │ │    │
-                                         │  │ │ Landlock filesystem      │ │    │
-                                         │  │ │ Bypass detection         │ │    │
-                                         │  │ │ Ephemeral TLS CA         │ │    │
-                                         │  │ │                          │ │    │
-                                         │  │ │   ┌──────────────────┐  │ │    │
-                                         │  │ │   │ Claude Code      │  │ │    │
-                                         │  │ │   │ (sandboxed)      │  │ │    │
-                                         │  │ │   │ user: sandbox    │  │ │    │
-                                         │  │ │   │ netns isolated   │  │ │    │
-                                         │  │ │   │ Landlock applied │  │ │    │
-                                         │  │ │   └──────────────────┘  │ │    │
+                                         │  │ │ Supervisor               │ │    │
+                                         │  │ │  Network namespace       │ │    │
+                                         │  │ │  L7 Proxy (OPA policy)   │ │    │
+                                         │  │ │  Landlock filesystem     │ │    │
+                                         │  │ │  Credential proxy        │ │    │
+                                         │  │ │    ┌──────────────────┐ │ │    │
+                                         │  │ │    │ Claude Code      │ │ │    │
+                                         │  │ │    │ (sandboxed)      │ │ │    │
+                                         │  │ │    └──────────────────┘ │ │    │
                                          │  │ └──────────────────────────┘ │    │
                                          │  └──────────────────────────────┘    │
                                          └──────────────────────────────────────┘
 ```
 
-## What OpenShell enforces
-
-| Security control | What it does | How to demo |
-|---|---|---|
-| **Per-binary L7 network policy** | `claude` can reach `api.anthropic.com`; `curl` can only reach `github.com`. Same host, different binaries, different access. | Run `curl` to anthropic (DENIED), then node/claude to anthropic (ALLOWED) |
-| **Landlock filesystem** | `/sandbox` is writable, `/etc` is read-only | Try writing to `/etc` (fails), writing to `/sandbox` (succeeds) |
-| **Network namespace** | All traffic forced through L7 proxy at 10.200.0.1:3128 | Show `ip addr` inside sandbox netns (10.200.0.2 only) |
-| **OCSF security logging** | Every allow/deny decision is logged with binary path, destination, policy rule | Read pod logs, grep for `NET:OPEN` |
-| **Bypass detection** | iptables rules detect attempts to skip the proxy | Show `CONFIG:INSTALLED` in logs |
-
 ## Prerequisites
 
-1. OpenShift cluster with kubeconfig
-2. agent-sandbox CRD and controller installed
-3. Privileged SCC service account (`openshell-sandbox`)
-4. ConfigMap with OPA policy (`openshell-policy`)
-5. Images public on quay.io:
-   - `quay.io/azaalouk/openshell-supervisor:latest`
-   - `quay.io/azaalouk/demo-sandbox-claude:latest`
+### 1. Install agent-sandbox CRD and controller
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/agent-sandbox/main/k8s/crds/agents.x-k8s.io_sandboxes.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/agent-sandbox/main/k8s/rbac.generated.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/agent-sandbox/main/k8s/controller.yaml
+
+# Fix the controller image (upstream manifest uses ko:// references)
+kubectl set image deployment/agent-sandbox-controller \
+  agent-sandbox-controller=registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.3.10 \
+  -n agent-sandbox-system
+```
+
+### 2. Create privileged service account (OpenShift)
+
+The supervisor needs to create network namespaces, which requires privileged access on OpenShift.
+
+```bash
+kubectl create serviceaccount openshell-sandbox -n default
+oc adm policy add-scc-to-user privileged -z openshell-sandbox -n default
+```
+
+### 3. Deploy gateway + driver
+
+```bash
+export HANDSHAKE_SECRET=$(openssl rand -hex 32)
+envsubst < deploy/gateway-with-driver.yaml | kubectl apply -f -
+
+# Wait for both containers to be ready
+kubectl wait --for=condition=ready pod -l app=openshell-gateway --timeout=60s
+```
+
+### 4. Connect the CLI
+
+```bash
+kubectl port-forward svc/openshell-gateway 8080:8080 &
+openshell gateway add http://localhost:8080 --local
+```
+
+### 5. Create a provider (for credential proxy)
+
+```bash
+openshell provider create --name anthropic --type anthropic \
+  --credential ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+```
 
 ## Demo Steps
 
-### Step 1: Show the sandbox is running
+### Create a sandbox
 
 ```bash
-# The sandbox CR, pod, and labels
-kubectl get sandbox claude-sandbox -n default
-kubectl get pod claude-sandbox -n default
-kubectl get pod claude-sandbox -n default -o jsonpath='{.metadata.labels}' | python3 -m json.tool
+openshell sandbox create --provider anthropic \
+  --from quay.io/azaalouk/demo-sandbox-claude:latest -- sleep infinity
 ```
 
-Expected output shows `kagenti.io/type: agent` and `openshell.ai/managed-by: openshell`.
+Ignore the "gateway CONNECT failed with status 400" error. This is a known issue between CLI v0.0.32 and the forked gateway's SSH path. The sandbox itself is created successfully.
 
-### Step 2: Show what OpenShell set up (OCSF security events)
+### Verify it's running
 
 ```bash
-kubectl logs claude-sandbox -n default | head -15
+openshell sandbox list
 ```
 
-Expected output shows the supervisor boot sequence:
-```
-CONFIG:LOADING   — OPA policy loaded
-CONFIG:VALIDATED — 'sandbox' user verified
-CONFIG:ENABLED   — Ephemeral TLS CA generated
-CONFIG:CREATING  — Network namespace being created
-CONFIG:CREATED   — Network namespace active (10.200.0.1 ↔ 10.200.0.2)
-CONFIG:INSTALLED — Bypass detection rules installed
-NET:LISTEN       — L7 proxy listening on :3128
-CONFIG:PROBED    — Landlock available (ABI v5)
-CONFIG:APPLYING  — Landlock filesystem rules applied
-CONFIG:BUILT     — 11 Landlock rules active
-PROC:LAUNCH      — Agent process launched inside sandbox
-```
-
-### Step 3: Verify Claude Code is inside the sandbox
+### Claude Code is inside the sandbox
 
 ```bash
-kubectl exec claude-sandbox -n default -- claude --version
+openshell sandbox exec -n <sandbox-name> -- claude --version
 ```
 
-Expected: `2.1.116 (Claude Code)`
+Output: `2.1.116 (Claude Code)`
 
-### Step 4: Demo per-binary network policy
-
-This is the key differentiator. The policy says:
-- `claude`/`node` binary can reach `api.anthropic.com:443`
-- `curl` binary can only reach `github.com:443` and `api.github.com:443`
+### Show sandbox user (not root)
 
 ```bash
-# Find the network namespace name
-NS=$(kubectl logs claude-sandbox -n default | grep "CONFIG:CREATED" | grep -o 'ns:sandbox-[a-f0-9]*' | cut -d: -f2)
-
-# curl (binary: /usr/bin/curl) trying to reach api.anthropic.com → DENIED
-kubectl exec claude-sandbox -n default -- \
-  nsenter --net=/var/run/netns/$NS -- \
-  su -s /bin/sh sandbox -c \
-  'HTTPS_PROXY=http://10.200.0.1:3128 curl -s --max-time 5 https://api.anthropic.com 2>&1; echo "exit: $?"'
-
-# Check the OCSF log
-kubectl logs claude-sandbox -n default --tail=3
+openshell sandbox exec -n <sandbox-name> -- id
 ```
 
-Expected OCSF log:
-```
-NET:OPEN [MED] DENIED /usr/bin/curl(PID) -> api.anthropic.com:443 [policy:- engine:opa]
-[reason:endpoint api.anthropic.com:443 not in policy 'github']
-```
+Output: `uid=1001(sandbox) gid=1001(sandbox) groups=1001(sandbox)`
 
-The supervisor blocked `curl` from reaching `api.anthropic.com` because the `github` policy (which is the only policy that allows `/usr/bin/curl`) doesn't include `api.anthropic.com`. Even though `api.anthropic.com` is allowed for the `claude` binary, each binary gets its own policy. A prompt injection that spawns `curl` to exfiltrate data would be caught here.
+### Show credential proxy (agent never sees real key)
 
 ```bash
-# curl trying to reach evil.com → also DENIED
-kubectl exec claude-sandbox -n default -- \
-  nsenter --net=/var/run/netns/$NS -- \
-  su -s /bin/sh sandbox -c \
-  'HTTPS_PROXY=http://10.200.0.1:3128 curl -s --max-time 5 https://evil.com 2>&1; echo "exit: $?"'
-
-# OCSF log shows denial for every policy rule:
-kubectl logs claude-sandbox -n default --tail=3
+openshell sandbox exec -n <sandbox-name> -- env | grep ANTHROPIC
 ```
 
-Expected:
+Output: `ANTHROPIC_API_KEY=openshell:resolve:env:ANTHROPIC_API_KEY`
+
+The real key is never exposed to the agent. The supervisor's proxy swaps the placeholder for the real key at the HTTP layer.
+
+### Show proxy env vars (set automatically by supervisor)
+
+```bash
+openshell sandbox exec -n <sandbox-name> -- env | grep PROXY
+```
+
+Output shows `HTTPS_PROXY=http://10.200.0.1:3128` set automatically. The agent doesn't configure this.
+
+### DENIED: curl to evil.com (blocked by L7 proxy)
+
+```bash
+openshell sandbox exec -n <sandbox-name> -- curl -sv --max-time 5 https://evil.com
+```
+
+Key output:
+```
+< HTTP/1.1 403 Forbidden
+```
+
+The supervisor's L7 proxy blocked the request. No policy allows any binary to reach `evil.com`.
+
+### Show the OCSF security audit trail
+
+```bash
+openshell logs <sandbox-name> --source sandbox
+```
+
+Key line:
 ```
 NET:OPEN [MED] DENIED /usr/bin/curl(PID) -> evil.com:443 [policy:- engine:opa]
-[reason:endpoint evil.com:443 not in policy 'claude'; endpoint evil.com:443 not in policy 'github'; ...]
+  [reason:network connections not allowed by policy]
 ```
 
-### Step 5: Show the policy
+Every security decision is a structured OCSF event with the binary path, PID, destination, and reason.
+
+### Live tail (shows events as they happen)
 
 ```bash
-kubectl get configmap openshell-policy -n default -o jsonpath='{.data.sandbox-policy\.yaml}'
+openshell logs <sandbox-name> --source sandbox --tail
 ```
 
-Point out:
-- `claude` and `node` binaries can reach `api.anthropic.com`
-- `curl` and `git` can reach `github.com`
-- `npm` and `node` can reach `registry.npmjs.org`
-- No binary can reach anything else
+Run curl in another terminal and watch the deny events appear in real-time.
 
-### Step 6: Show the full OCSF audit trail
+## What the demo proves
 
-```bash
-kubectl logs claude-sandbox -n default
-```
+| Claim | Evidence |
+|---|---|
+| Per-binary L7 network policy | `curl` → 403 Forbidden. Different binaries get different access. |
+| Credential isolation | `ANTHROPIC_API_KEY=openshell:resolve:env:...` (placeholder, not real key) |
+| Automatic proxy configuration | `HTTPS_PROXY` set by supervisor, not by user |
+| OCSF structured logging | Every allow/deny is a structured event with binary, PID, destination |
+| Landlock filesystem | Agent runs as `sandbox` user with restricted filesystem |
+| Supervisor injection via init container | No hostPath, no DaemonSet, works with OpenShift SCCs |
+| Kagenti-ready labels | `kagenti.io/type=agent` on every sandbox pod |
+| External compute driver | Go driver communicates with Rust gateway via gRPC over UDS |
 
-Every security decision is logged with:
-- Binary path and PID
-- Destination host and port
-- Policy name and engine
-- Allow/deny reason
-- OCSF severity level
+## Images used
 
-### Step 7: Show the sandbox pod spec (init container injection)
+| Image | Purpose | Registry |
+|---|---|---|
+| `quay.io/azaalouk/openshell-gateway` | Forked gateway with `--compute-driver-socket` | quay.io (public) |
+| `quay.io/azaalouk/openshell-driver-openshift` | Go compute driver | quay.io (public) |
+| `quay.io/azaalouk/openshell-supervisor` | Supervisor binary (built from fork) | quay.io (public) |
+| `quay.io/azaalouk/demo-sandbox-claude` | Claude Code + iproute2 + sandbox user | quay.io (public) |
 
-```bash
-kubectl get pod claude-sandbox -n default -o json | python3 -c "
-import json, sys
-pod = json.load(sys.stdin)
-spec = pod['spec']
+## Known issues
 
-print('Init containers:')
-for ic in spec.get('initContainers', []):
-    print(f'  {ic[\"name\"]}: {ic[\"image\"]}')
-    print(f'    command: {ic[\"command\"]}')
+1. **"gateway CONNECT failed with status 400"** after `sandbox create`. The SSH CONNECT path has a protocol mismatch between CLI v0.0.32 and the forked gateway. Workaround: use `sandbox exec` instead of `sandbox connect`.
 
-print()
-print('Agent container:')
-c = spec['containers'][0]
-print(f'  image: {c[\"image\"]}')
-print(f'  command: {c.get(\"command\", \"N/A\")}')
-print(f'  securityContext: {c.get(\"securityContext\", {})}')
-"
-```
+2. **Default restrictive policy**. When no custom policy is configured through the gateway, the supervisor uses a restrictive default that blocks all network traffic. Claude Code needs `api.anthropic.com` allowed to function. Configure a policy through `openshell policy set` or mount a policy ConfigMap.
 
-This shows the supervisor binary being injected via init container (not hostPath), which is the OpenShift-friendly approach.
+3. **`/home/sandbox/.profile: Permission denied`**. Cosmetic error from Landlock blocking shell profile reads. Does not affect functionality.
 
 ## Cleanup
 
 ```bash
-kubectl delete sandbox claude-sandbox -n default
-kubectl delete configmap openshell-policy -n default
+openshell sandbox delete <sandbox-name>
+kubectl delete -f deploy/gateway-with-driver.yaml
 kubectl delete serviceaccount openshell-sandbox -n default
+kubectl delete deployment agent-sandbox-controller -n agent-sandbox-system
 ```
-
-## Key talking points
-
-1. **Per-binary policy is unique to OpenShell.** K8s NetworkPolicy is L3/L4 and applies to the whole pod. OpenShell's OPA policy distinguishes which binary made the network call. A malicious npm postinstall script can't exfiltrate data even if the agent has network access.
-
-2. **Supervisor injection via init container.** No hostPath, no DaemonSet, no node-level changes. Works with OpenShift SCCs. The supervisor is a single binary copied from a container image.
-
-3. **OCSF structured logging.** Every security decision is a structured event, not a free-text log line. Ready for SIEM integration.
-
-4. **Kagenti-ready labels.** When Kagenti is installed, the `kagenti.io/type: agent` label auto-enrolls the sandbox with SPIFFE identity, OTEL tracing, and A2A discovery. Zero additional configuration.
-
-5. **Driver is Go, supervisor is Rust, gateway is Rust.** The compute driver can be written in any language because it communicates via gRPC. We proved this with a Go driver talking to a Rust supervisor.

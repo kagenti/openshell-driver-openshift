@@ -6,6 +6,12 @@ type Config struct {
 	SupervisorImage      string
 	SupervisorBinaryPath string
 	SupervisorMountPath  string
+
+	// Gateway connection config. The driver injects these as env vars into
+	// sandbox pods so the supervisor can connect back to the gateway.
+	GatewayEndpoint    string
+	SSHListenAddr      string
+	SSHHandshakeSecret string
 }
 
 // DefaultConfig returns a Config with sensible defaults.

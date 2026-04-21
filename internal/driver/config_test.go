@@ -11,7 +11,7 @@ func TestDefaultConfig(t *testing.T) {
 		want  string
 	}{
 		{"Namespace", cfg.Namespace, "openshell-system"},
-		{"SupervisorImage", cfg.SupervisorImage, "ghcr.io/nvidia/openshell-community/supervisor:latest"},
+		{"SupervisorImage", cfg.SupervisorImage, "quay.io/azaalouk/openshell-supervisor:latest"},
 		{"SupervisorBinaryPath", cfg.SupervisorBinaryPath, "/usr/local/bin/openshell-sandbox"},
 		{"SupervisorMountPath", cfg.SupervisorMountPath, "/opt/openshell/bin"},
 	}

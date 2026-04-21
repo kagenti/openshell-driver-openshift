@@ -1,0 +1,140 @@
+# OpenShell Gateway + Go Compute Driver deployment.
+#
+# Deploys the forked gateway (with --compute-driver-socket support) and the
+# Go compute driver as sidecar containers sharing a Unix domain socket.
+#
+# Prerequisites:
+#   1. agent-sandbox CRD installed:
+#      kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/agent-sandbox/main/k8s/crds/agents.x-k8s.io_sandboxes.yaml
+#
+#   2. agent-sandbox controller running:
+#      kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/agent-sandbox/main/k8s/rbac.generated.yaml
+#      kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/agent-sandbox/main/k8s/controller.yaml
+#      kubectl set image deployment/agent-sandbox-controller \
+#        agent-sandbox-controller=registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.3.10 \
+#        -n agent-sandbox-system
+#
+#   3. Privileged service account for sandbox pods:
+#      kubectl create serviceaccount openshell-sandbox -n default
+#      oc adm policy add-scc-to-user privileged -z openshell-sandbox -n default
+#
+# Usage:
+#   # Generate a shared handshake secret
+#   export HANDSHAKE_SECRET=$(openssl rand -hex 32)
+#
+#   # Substitute and apply
+#   envsubst < deploy/gateway-with-driver.yaml | kubectl apply -f -
+#
+#   # Register the gateway with the CLI
+#   kubectl port-forward svc/openshell-gateway 8080:8080 &
+#   openshell gateway add http://localhost:8080 --local
+#
+#   # Create a provider with your API key
+#   openshell provider create --name anthropic --type anthropic \
+#     --credential ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+#
+#   # Create a sandbox
+#   openshell sandbox create --provider anthropic \
+#     --from quay.io/azaalouk/demo-sandbox-claude:latest -- sleep infinity
+#
+#   # Exec into the sandbox
+#   openshell sandbox exec -n <sandbox-name> -- claude --version
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openshell-gateway
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openshell-gateway
+subjects:
+  - kind: ServiceAccount
+    name: openshell-gateway
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openshell-gateway
+  namespace: default
+spec:
+  selector:
+    app: openshell-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openshell-gateway
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openshell-gateway
+  template:
+    metadata:
+      labels:
+        app: openshell-gateway
+    spec:
+      serviceAccountName: openshell-gateway
+      containers:
+        # Go compute driver: creates Sandbox CRDs with supervisor init container
+        - name: driver
+          image: quay.io/azaalouk/openshell-driver-openshift:latest
+          imagePullPolicy: Always
+          args:
+            - --socket
+            - /shared/driver.sock
+            - --namespace
+            - default
+            - --supervisor-image
+            - quay.io/azaalouk/openshell-supervisor:latest
+            - --gateway-endpoint
+            - "http://openshell-gateway.default.svc.cluster.local:8080"
+            - --ssh-handshake-secret
+            - "${HANDSHAKE_SECRET}"
+          volumeMounts:
+            - name: shared-socket
+              mountPath: /shared
+
+        # Forked gateway: connects to Go driver via UDS
+        - name: gateway
+          image: quay.io/azaalouk/openshell-gateway:latest
+          imagePullPolicy: Always
+          args:
+            - --db-url
+            - "sqlite:///tmp/openshell.db?mode=rwc"
+            - --disable-tls
+            - --drivers
+            - external
+            - --compute-driver-socket
+            - /shared/driver.sock
+            - --sandbox-namespace
+            - default
+            - --sandbox-image
+            - quay.io/azaalouk/demo-sandbox-claude:latest
+            - --grpc-endpoint
+            - "http://openshell-gateway.default.svc.cluster.local:8080"
+            - --ssh-handshake-secret
+            - "${HANDSHAKE_SECRET}"
+            - --log-level
+            - info
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: shared-socket
+              mountPath: /shared
+      volumes:
+        - name: shared-socket
+          emptyDir: {}

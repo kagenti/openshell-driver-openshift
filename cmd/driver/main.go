@@ -30,6 +30,12 @@ func main() {
 		"Path to the supervisor binary inside the supervisor image")
 	flag.StringVar(&cfg.SupervisorMountPath, "supervisor-mount-path", cfg.SupervisorMountPath,
 		"Mount path for the supervisor binary volume in the agent container")
+	flag.StringVar(&cfg.GatewayEndpoint, "gateway-endpoint", cfg.GatewayEndpoint,
+		"Gateway gRPC endpoint for supervisor callback (OPENSHELL_ENDPOINT)")
+	flag.StringVar(&cfg.SSHListenAddr, "ssh-listen-addr", "0.0.0.0:2222",
+		"SSH listen address inside sandbox (OPENSHELL_SSH_LISTEN_ADDR)")
+	flag.StringVar(&cfg.SSHHandshakeSecret, "ssh-handshake-secret", cfg.SSHHandshakeSecret,
+		"Shared secret for gateway-to-sandbox SSH handshake")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -43,6 +49,11 @@ func main() {
 	if err != nil {
 		logger.Error("failed to listen", "socket", *socketPath, "error", err)
 		os.Exit(1)
+	}
+
+	// Make socket accessible to other containers in the same pod.
+	if err := os.Chmod(*socketPath, 0777); err != nil {
+		logger.Warn("failed to chmod socket", "error", err)
 	}
 
 	d, err := driver.New(cfg, logger)
