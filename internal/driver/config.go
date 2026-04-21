@@ -12,7 +12,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Namespace:            "openshell-system",
-		SupervisorImage:      "ghcr.io/nvidia/openshell-community/supervisor:latest",
+		SupervisorImage:      "quay.io/azaalouk/openshell-supervisor:latest",
 		SupervisorBinaryPath: "/usr/local/bin/openshell-sandbox",
 		SupervisorMountPath:  "/opt/openshell/bin",
 	}
