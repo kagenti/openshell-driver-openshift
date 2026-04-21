@@ -11,8 +11,50 @@ openshell-gateway ──── Unix domain socket ──── openshell-driver-
                                                     │
                                                     ├── Creates Sandbox CRDs
                                                     ├── Watches for status changes
+                                                    ├── Injects supervisor via init container
                                                     ├── Resolves pod IPs for exec/SSH
                                                     └── Sets kagenti.io/type=agent label
+```
+
+## Architecture
+
+Three interfaces, one implemented (Phase 1), two stubbed for Phase 2:
+
+```
+Driver (gRPC server)
+  ├── SandboxProvisioner  ← K8sProvisioner (implemented)
+  │   Creates/deletes/watches Sandbox CRDs, injects supervisor,
+  │   resolves endpoints, validates GPU capacity
+  │
+  ├── PlatformEnricher    ← NoopEnricher (Phase 2: SCC, SELinux, Routes)
+  │
+  └── DriverMetrics       ← NoopMetrics (Phase 2: Prometheus)
+```
+
+The driver handles only platform-specific provisioning. The gateway handles sandbox lifecycle orchestration, policy delivery, credential resolution, and user authentication.
+
+## Supervisor injection
+
+The upstream Rust K8s driver uses a hostPath volume to mount the supervisor binary from the node. This driver uses an **init container + emptyDir** instead, which avoids hostPath (blocked by OpenShift's `restricted-v2` SCC) and doesn't require pre-staging binaries on nodes.
+
+See [docs/why-init-container.md](docs/why-init-container.md) for the full rationale.
+
+```yaml
+# What the driver produces in the pod spec:
+initContainers:
+  - name: supervisor-init
+    image: ghcr.io/nvidia/openshell-community/supervisor:latest
+    command: ["cp", "/usr/local/bin/openshell-sandbox", "/opt/openshell/bin/"]
+containers:
+  - name: agent
+    command: ["/opt/openshell/bin/openshell-sandbox"]  # supervisor runs first
+    securityContext:
+      runAsUser: 0
+      capabilities:
+        add: [SYS_ADMIN, NET_ADMIN, SYS_PTRACE, SYSLOG]
+volumes:
+  - name: supervisor-bin
+    emptyDir: {}
 ```
 
 ## gRPC Interface
@@ -22,8 +64,8 @@ The driver implements 9 RPCs defined in `proto/compute_driver.proto`:
 | RPC | Purpose |
 |-----|---------|
 | `GetCapabilities` | Report driver name, version, GPU support |
-| `ValidateSandboxCreate` | Pre-flight check (GPU capacity, namespace quotas) |
-| `CreateSandbox` | Create a Sandbox CR on the cluster |
+| `ValidateSandboxCreate` | Pre-flight check (GPU capacity, input validation) |
+| `CreateSandbox` | Create a Sandbox CR with supervisor init container |
 | `GetSandbox` | Fetch current state of one sandbox |
 | `ListSandboxes` | List all managed sandboxes |
 | `StopSandbox` | Stop a sandbox without deleting its record |
@@ -31,49 +73,69 @@ The driver implements 9 RPCs defined in `proto/compute_driver.proto`:
 | `ResolveSandboxEndpoint` | Return pod IP or DNS for exec/SSH connectivity |
 | `WatchSandboxes` | Server-streaming: emit real-time sandbox state changes |
 
-## Build
+## Build and Test
 
 ```bash
-# Generate Go code from proto (requires buf)
-make proto
-
-# Build the binary
-make build
-
-# Run tests
-make test
+make build              # build the binary
+make test               # unit tests + gRPC contract tests (no cluster needed)
+make test-unit          # unit tests only
+make test-grpc          # gRPC contract tests only
+make test-integration   # integration tests (requires cluster + Sandbox CRD)
+make test-all           # all tiers
 ```
 
-## Run
+### Testing tiers
 
-The driver runs as a standalone process and listens on a Unix domain socket:
+| Tier | What | Cluster needed? | Command |
+|------|------|----------------|---------|
+| 1: Unit | Fake K8s clients, helpers, validation | No | `make test-unit` |
+| 2: gRPC contract | Real gRPC over UDS, fake K8s | No | `make test-grpc` |
+| 3: Integration | Real cluster, real CRDs | Yes | `make test-integration` |
+
+Integration tests require:
+- `KUBECONFIG` pointing at a cluster (or `~/.kube/config`)
+- The [agent-sandbox CRD](https://github.com/kubernetes-sigs/agent-sandbox) installed
+- A test namespace (default: `openshell-integration-test`, override via `INTEGRATION_TEST_NAMESPACE`)
+
+## Run
 
 ```bash
 # Start the driver
 ./openshell-driver-openshift \
   --socket /var/run/openshell-driver.sock \
-  --namespace openshell-system
+  --namespace openshell-system \
+  --supervisor-image ghcr.io/nvidia/openshell-community/supervisor:latest
 
-# Point the OpenShell gateway at it
+# Point the OpenShell gateway at it (requires gateway fork with --compute-driver-socket)
 openshell-gateway --compute-driver-socket /var/run/openshell-driver.sock
 ```
 
+### Flags
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--socket` | `/var/run/openshell-driver.sock` | UDS path for gRPC |
+| `--namespace` | `openshell-system` | K8s namespace for sandboxes |
+| `--supervisor-image` | `ghcr.io/nvidia/openshell-community/supervisor:latest` | Supervisor OCI image |
+| `--supervisor-binary-path` | `/usr/local/bin/openshell-sandbox` | Binary path inside supervisor image |
+| `--supervisor-mount-path` | `/opt/openshell/bin` | Mount point in agent container |
+
+## Gateway dependency
+
+The OpenShell gateway currently doesn't support connecting to external driver sockets. This driver requires a [gateway fork](https://github.com/zanetworker/OpenShell) with a `--compute-driver-socket` flag (~20 lines of Rust). See [design spec](docs/specs/2026-04-21-openshift-compute-driver-design.md) Section 7 for details.
+
 ## OpenShift-specific features
 
-The driver extends the base K8s compute driver with:
+Implemented:
+- **Supervisor init container**: emptyDir-based, no hostPath needed
+- **Kagenti auto-enrollment**: `kagenti.io/type=agent` and `openshell.ai/managed-by=openshell` labels
+- **GPU validation**: Checks `nvidia.com/gpu` allocatable before creating GPU sandboxes
+- **`platform_config` passthrough**: `runtime_class_name` for Kata/sandboxed containers
 
-- **Kagenti auto-enrollment**: Sets `kagenti.io/type: agent` label on all sandbox pods, so Kagenti automatically enrolls them with SPIFFE identity, OTEL tracing, and A2A discovery
-- **GPU validation**: Checks `nvidia.com/gpu` allocatable on nodes before creating GPU sandboxes
-- **`platform_config` passthrough**: Supports `runtime_class_name` (for Kata/sandboxed containers), annotations, and other OpenShift-specific fields via the opaque `platform_config` struct
-
-## Architecture
-
-This driver communicates with the OpenShell gateway over gRPC (Unix domain socket). The gateway handles:
-- Sandbox lifecycle orchestration, persistence, and reconciliation
-- Policy delivery and credential resolution
-- User authentication (via identity drivers)
-
-The driver handles only platform-specific provisioning:
-- Creating/deleting Sandbox CRDs
-- Watching CRD status changes
-- Resolving pod endpoints
+Planned (Phase 2):
+- SCC detection and auto-selection
+- SELinux context via `seLinuxOptions` (Option C: driver requests, platform owns policy)
+- OpenShift Route creation for external access
+- OAuth proxy sidecar injection
+- Prometheus metrics + ServiceMonitor
+- Helm chart
