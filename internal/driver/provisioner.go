@@ -243,7 +243,8 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 		"command": []interface{}{p.cfg.SupervisorMountPath + "/openshell-sandbox"},
 		"env":     p.buildFullEnvList(sb, spec, tmpl),
 		"securityContext": map[string]interface{}{
-			"runAsUser": int64(0),
+			"privileged": true,
+			"runAsUser":  int64(0),
 			"capabilities": map[string]interface{}{
 				"add": []interface{}{"SYS_ADMIN", "NET_ADMIN", "SYS_PTRACE", "SYSLOG"},
 			},
@@ -303,8 +304,9 @@ func (p *K8sProvisioner) buildFullEnvList(
 	envList := buildEnvList(spec.GetEnvironment(), tmpl.GetEnvironment())
 
 	gatewayEnv := map[string]string{
-		"OPENSHELL_SANDBOX_ID": sb.GetId(),
-		"OPENSHELL_SANDBOX":    sb.GetName(),
+		"OPENSHELL_SANDBOX_ID":      sb.GetId(),
+		"OPENSHELL_SANDBOX":         sb.GetName(),
+		"OPENSHELL_SANDBOX_COMMAND": "sleep infinity",
 	}
 	if p.cfg.GatewayEndpoint != "" {
 		gatewayEnv["OPENSHELL_ENDPOINT"] = p.cfg.GatewayEndpoint

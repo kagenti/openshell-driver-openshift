@@ -209,8 +209,12 @@ func TestBuildSandboxSpec_SupervisorInitContainer(t *testing.T) {
 		t.Errorf("expected command [%s], got %v", expectedCmd, agentCmd)
 	}
 
-	// Verify security context uses granular capabilities.
+	// Verify security context: privileged (required by OpenShift SCC admission)
+	// plus explicit capabilities for documentation.
 	secCtx := agentC["securityContext"].(map[string]interface{})
+	if secCtx["privileged"] != true {
+		t.Errorf("expected privileged true, got %v", secCtx["privileged"])
+	}
 	if secCtx["runAsUser"] != int64(0) {
 		t.Errorf("expected runAsUser 0, got %v", secCtx["runAsUser"])
 	}
