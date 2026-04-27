@@ -72,9 +72,7 @@ func startTestServer(t *testing.T) (pb.ComputeDriverClient, func()) {
 	pb.RegisterComputeDriverServer(srv, drv)
 
 	go func() {
-		if err := srv.Serve(lis); err != nil {
-			// Serve returns an error after GracefulStop; ignore.
-		}
+		_ = srv.Serve(lis) // returns error after GracefulStop
 	}()
 
 	conn, err := grpc.NewClient(
