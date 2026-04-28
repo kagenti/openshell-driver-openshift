@@ -15,10 +15,13 @@
 #        -n agent-sandbox-system
 #
 #   3. Privileged service account for sandbox pods:
-#      kubectl create serviceaccount openshell-sandbox -n default
-#      oc adm policy add-scc-to-user privileged -z openshell-sandbox -n default
+#      kubectl create serviceaccount openshell-sandbox -n ${NAMESPACE}
+#      oc adm policy add-scc-to-user privileged -z openshell-sandbox -n ${NAMESPACE}
 #
 # Usage:
+#   # Set the target tenant namespace
+#   export NAMESPACE=team1
+#
 #   # Generate a shared handshake secret (required by gateway)
 #   export HANDSHAKE_SECRET=$(openssl rand -hex 32)
 #
@@ -26,7 +29,7 @@
 #   envsubst < deploy/gateway-with-driver.yaml | kubectl apply -f -
 #
 #   # Register the gateway with the CLI
-#   kubectl port-forward svc/openshell-gateway 8080:8080 &
+#   kubectl port-forward svc/openshell-gateway 8080:8080 -n ${NAMESPACE} &
 #   openshell gateway add http://localhost:8080 --local
 #
 #   # Create a provider with your API key
@@ -44,26 +47,43 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: openshell-gateway
-  namespace: default
+  namespace: ${NAMESPACE}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: Role
 metadata:
+  name: openshell-gateway
+  namespace: ${NAMESPACE}
+rules:
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "events", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openshell-gateway
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
   name: openshell-gateway
 subjects:
   - kind: ServiceAccount
     name: openshell-gateway
-    namespace: default
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
+    namespace: ${NAMESPACE}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: openshell-gateway
-  namespace: default
+  namespace: ${NAMESPACE}
 spec:
   selector:
     app: openshell-gateway
@@ -76,7 +96,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: openshell-gateway
-  namespace: default
+  namespace: ${NAMESPACE}
 spec:
   replicas: 1
   selector:
@@ -97,11 +117,11 @@ spec:
             - --socket
             - /shared/driver.sock
             - --namespace
-            - default
+            - ${NAMESPACE}
             - --supervisor-image
             - quay.io/azaalouk/openshell-supervisor:latest
             - --gateway-endpoint
-            - "http://openshell-gateway.default.svc.cluster.local:8080"
+            - "http://openshell-gateway.${NAMESPACE}.svc.cluster.local:8080"
           volumeMounts:
             - name: shared-socket
               mountPath: /shared
@@ -119,11 +139,11 @@ spec:
             - --compute-driver-socket
             - /shared/driver.sock
             - --sandbox-namespace
-            - default
+            - ${NAMESPACE}
             - --sandbox-image
             - quay.io/azaalouk/demo-sandbox-claude:latest
             - --grpc-endpoint
-            - "http://openshell-gateway.default.svc.cluster.local:8080"
+            - "http://openshell-gateway.${NAMESPACE}.svc.cluster.local:8080"
             - --ssh-handshake-secret
             - "${HANDSHAKE_SECRET}"
             - --log-level

@@ -13,6 +13,7 @@ func TestDefaultConfig(t *testing.T) {
 		{"Namespace", cfg.Namespace, "openshell-system"},
 		{"SupervisorImage", cfg.SupervisorImage, "quay.io/azaalouk/openshell-supervisor:latest"},
 		{"SupervisorBinaryPath", cfg.SupervisorBinaryPath, "/usr/local/bin/openshell-sandbox"},
+		{"DtachBinaryPath", cfg.DtachBinaryPath, "/usr/local/bin/dtach"},
 		{"SupervisorMountPath", cfg.SupervisorMountPath, "/opt/openshell/bin"},
 	}
 

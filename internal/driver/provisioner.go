@@ -22,9 +22,11 @@ var sandboxGVR = schema.GroupVersionResource{
 }
 
 const (
-	labelSandboxID = "openshell.ai/sandbox-id"
-	labelManagedBy = "openshell.ai/managed-by"
-	labelKagenti   = "kagenti.io/type"
+	labelSandboxID   = "openshell.ai/sandbox-id"
+	labelManagedBy   = "openshell.ai/managed-by"
+	labelKagenti     = "kagenti.io/type"
+	labelTenant      = "openshell.ai/tenant"
+	labelKagentiTeam = "kagenti.io/team"
 )
 
 // K8sProvisioner implements SandboxProvisioner using the Kubernetes API. It
@@ -76,6 +78,10 @@ func (p *K8sProvisioner) Create(ctx context.Context, sb *pb.DriverSandbox) error
 		labelManagedBy: "openshell",
 		labelKagenti:   "agent",
 	})
+	if p.cfg.Tenant != "" {
+		labels[labelTenant] = p.cfg.Tenant
+		labels[labelKagentiTeam] = p.cfg.Tenant
+	}
 
 	obj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -223,11 +229,16 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 	spec := sb.GetSpec()
 	tmpl := spec.GetTemplate()
 
-	// Supervisor init container copies the binary into the shared volume.
+	// Supervisor init container copies both the supervisor and dtach binaries into the shared volume.
 	initContainer := map[string]interface{}{
-		"name":    "supervisor-init",
-		"image":   p.cfg.SupervisorImage,
-		"command": []interface{}{"cp", p.cfg.SupervisorBinaryPath, p.cfg.SupervisorMountPath + "/"},
+		"name":  "supervisor-init",
+		"image": p.cfg.SupervisorImage,
+		"command": []interface{}{
+			"sh", "-c",
+			fmt.Sprintf("cp %s %s/ && cp %s %s/",
+				p.cfg.SupervisorBinaryPath, p.cfg.SupervisorMountPath,
+				p.cfg.DtachBinaryPath, p.cfg.SupervisorMountPath),
+		},
 		"volumeMounts": []interface{}{
 			map[string]interface{}{
 				"name":      "supervisor-bin",
@@ -282,14 +293,20 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 		}
 	}
 
+	podLabels := mergeMaps(tmpl.GetLabels(), map[string]string{
+		labelSandboxID: sb.GetId(),
+		labelManagedBy: "openshell",
+		labelKagenti:   "agent",
+	})
+	if p.cfg.Tenant != "" {
+		podLabels[labelTenant] = p.cfg.Tenant
+		podLabels[labelKagentiTeam] = p.cfg.Tenant
+	}
+
 	return map[string]interface{}{
 		"podTemplate": map[string]interface{}{
 			"metadata": map[string]interface{}{
-				"labels": mergeMaps(tmpl.GetLabels(), map[string]string{
-					labelSandboxID: sb.GetId(),
-					labelManagedBy: "openshell",
-					labelKagenti:   "agent",
-				}),
+				"labels": podLabels,
 			},
 			"spec": podSpec,
 		},
