@@ -1,4 +1,12 @@
-# openshell-driver-openshift
+# openshell-driver-openshift (Kagenti Fork)
+
+> **This is a [Kagenti](https://github.com/kagenti/kagenti) fork of [zanetworker/openshell-driver-openshift](https://github.com/zanetworker/openshell-driver-openshift).**
+>
+> The `mvp` branch adds namespace flag, tenant labels, scoped RBAC, and dtach session
+> persistence for multi-tenant OpenShell deployments.
+> See the [epic](https://github.com/kagenti/kagenti/issues/1363) for the full plan.
+>
+> **Upstream tracking:** `main` is kept in sync with upstream. Fork-specific work happens on `mvp`.
 
 An [OpenShell](https://github.com/NVIDIA/OpenShell) compute driver for OpenShift/Kubernetes clusters. Implements the `ComputeDriver` gRPC contract (`compute_driver.proto`) to provision agent sandboxes as `agents.x-k8s.io/v1alpha1/Sandbox` CRDs.
 

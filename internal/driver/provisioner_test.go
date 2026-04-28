@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 
 	pb "github.com/zanetworker/openshell-driver-openshift/gen/computev1"
@@ -185,13 +186,17 @@ func TestBuildSandboxSpec_SupervisorInitContainer(t *testing.T) {
 		t.Errorf("expected image %s, got %v", cfg.SupervisorImage, initC["image"])
 	}
 
-	// Verify command copies supervisor binary.
+	// Verify command copies both supervisor and dtach binaries via sh -c.
 	cmd := initC["command"].([]interface{})
-	if len(cmd) != 3 || cmd[0] != "cp" {
-		t.Errorf("expected cp command, got %v", cmd)
+	if len(cmd) != 3 || cmd[0] != "sh" || cmd[1] != "-c" {
+		t.Errorf("expected sh -c command, got %v", cmd)
 	}
-	if cmd[1] != cfg.SupervisorBinaryPath {
-		t.Errorf("expected source %s, got %v", cfg.SupervisorBinaryPath, cmd[1])
+	script := cmd[2].(string)
+	if !strings.Contains(script, cfg.SupervisorBinaryPath) {
+		t.Errorf("expected script to contain supervisor path %s, got %s", cfg.SupervisorBinaryPath, script)
+	}
+	if !strings.Contains(script, cfg.DtachBinaryPath) {
+		t.Errorf("expected script to contain dtach path %s, got %s", cfg.DtachBinaryPath, script)
 	}
 
 	// Verify agent container runs supervisor.
@@ -291,6 +296,45 @@ func TestBuildSandboxSpec_Labels(t *testing.T) {
 	}
 	if labels[labelManagedBy] != "openshell" {
 		t.Errorf("expected managed-by label, got %v", labels[labelManagedBy])
+	}
+	// No tenant configured in testConfig() — tenant labels must be absent.
+	if _, ok := labels[labelTenant]; ok {
+		t.Errorf("expected no %s label when tenant is empty, got %v", labelTenant, labels[labelTenant])
+	}
+}
+
+func TestBuildSandboxSpec_TenantLabels(t *testing.T) {
+	cfg := testConfig()
+	cfg.Tenant = "team1"
+
+	logger := testLogger()
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		scheme,
+		map[schema.GroupVersionResource]string{sandboxGVR: "SandboxList"},
+	)
+	clientset := kubefake.NewSimpleClientset()
+	p := NewK8sProvisioner(dynClient, clientset, cfg, logger)
+
+	sb := &pb.DriverSandbox{
+		Id: "sb-tenant",
+		Spec: &pb.DriverSandboxSpec{
+			Template: &pb.DriverSandboxTemplate{
+				Image: "img:latest",
+			},
+		},
+	}
+
+	spec := p.buildSandboxSpec(sb)
+	podTemplate := spec["podTemplate"].(map[string]interface{})
+	meta := podTemplate["metadata"].(map[string]interface{})
+	podLabels := meta["labels"].(map[string]interface{})
+
+	if podLabels[labelTenant] != "team1" {
+		t.Errorf("expected %s=team1, got %v", labelTenant, podLabels[labelTenant])
+	}
+	if podLabels[labelKagentiTeam] != "team1" {
+		t.Errorf("expected %s=team1, got %v", labelKagentiTeam, podLabels[labelKagentiTeam])
 	}
 }
 

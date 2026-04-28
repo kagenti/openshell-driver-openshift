@@ -24,15 +24,23 @@ func main() {
 	cfg := driver.DefaultConfig()
 	flag.StringVar(&cfg.Namespace, "namespace", cfg.Namespace,
 		"Kubernetes namespace where sandboxes are provisioned")
+	flag.StringVar(&cfg.Tenant, "tenant", cfg.Tenant,
+		"Tenant name for pod labels (openshell.ai/tenant, kagenti.io/team); defaults to namespace if empty")
 	flag.StringVar(&cfg.SupervisorImage, "supervisor-image", cfg.SupervisorImage,
 		"Container image that contains the supervisor binary")
 	flag.StringVar(&cfg.SupervisorBinaryPath, "supervisor-binary-path", cfg.SupervisorBinaryPath,
 		"Path to the supervisor binary inside the supervisor image")
+	flag.StringVar(&cfg.DtachBinaryPath, "dtach-binary-path", cfg.DtachBinaryPath,
+		"Path to the dtach binary inside the supervisor image")
 	flag.StringVar(&cfg.SupervisorMountPath, "supervisor-mount-path", cfg.SupervisorMountPath,
 		"Mount path for the supervisor binary volume in the agent container")
 	flag.StringVar(&cfg.GatewayEndpoint, "gateway-endpoint", cfg.GatewayEndpoint,
 		"Gateway gRPC endpoint for supervisor callback (OPENSHELL_ENDPOINT)")
 	flag.Parse()
+
+	if cfg.Tenant == "" {
+		cfg.Tenant = cfg.Namespace
+	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
