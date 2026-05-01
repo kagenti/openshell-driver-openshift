@@ -8,6 +8,8 @@ type Config struct {
 	DtachBinaryPath      string
 	SupervisorMountPath  string
 	GatewayEndpoint      string
+	TLSCASecret          string // Secret name containing ca.crt for gateway TLS verification
+	TLSClientSecret      string // Secret name containing tls.crt and tls.key for mTLS client auth
 }
 
 func DefaultConfig() Config {

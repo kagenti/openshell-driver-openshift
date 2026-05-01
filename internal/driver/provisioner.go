@@ -22,11 +22,12 @@ var sandboxGVR = schema.GroupVersionResource{
 }
 
 const (
-	labelSandboxID   = "openshell.ai/sandbox-id"
-	labelManagedBy   = "openshell.ai/managed-by"
-	labelKagenti     = "kagenti.io/type"
-	labelTenant      = "openshell.ai/tenant"
-	labelKagentiTeam = "kagenti.io/team"
+	labelSandboxID      = "openshell.ai/sandbox-id"
+	labelManagedBy      = "openshell.ai/managed-by"
+	labelKagenti        = "kagenti.io/type"
+	labelKagentiInject  = "kagenti.io/inject"
+	labelTenant         = "openshell.ai/tenant"
+	labelKagentiTeam    = "kagenti.io/team"
 )
 
 // K8sProvisioner implements SandboxProvisioner using the Kubernetes API. It
@@ -74,9 +75,10 @@ func (p *K8sProvisioner) Create(ctx context.Context, sb *pb.DriverSandbox) error
 	tmpl := spec.GetTemplate()
 
 	labels := mergeMaps(tmpl.GetLabels(), map[string]string{
-		labelSandboxID: sb.GetId(),
-		labelManagedBy: "openshell",
-		labelKagenti:   "agent",
+		labelSandboxID:     sb.GetId(),
+		labelManagedBy:     "openshell",
+		labelKagenti:       "agent",
+		labelKagentiInject: "disabled",
 	})
 	if p.cfg.Tenant != "" {
 		labels[labelTenant] = p.cfg.Tenant
@@ -248,6 +250,28 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 	}
 
 	// Agent container runs the supervisor and mounts it read-only.
+	agentVolumeMounts := []interface{}{
+		map[string]interface{}{
+			"name":      "supervisor-bin",
+			"mountPath": p.cfg.SupervisorMountPath,
+			"readOnly":  true,
+		},
+	}
+	if p.cfg.TLSCASecret != "" {
+		agentVolumeMounts = append(agentVolumeMounts, map[string]interface{}{
+			"name":      "tls-ca",
+			"mountPath": "/tls/ca",
+			"readOnly":  true,
+		})
+	}
+	if p.cfg.TLSClientSecret != "" {
+		agentVolumeMounts = append(agentVolumeMounts, map[string]interface{}{
+			"name":      "tls-client",
+			"mountPath": "/tls/client",
+			"readOnly":  true,
+		})
+	}
+
 	container := map[string]interface{}{
 		"name":    "agent",
 		"image":   tmpl.GetImage(),
@@ -260,29 +284,47 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 				"add": []interface{}{"SYS_ADMIN", "NET_ADMIN", "SYS_PTRACE", "SYSLOG"},
 			},
 		},
-		"volumeMounts": []interface{}{
-			map[string]interface{}{
-				"name":      "supervisor-bin",
-				"mountPath": p.cfg.SupervisorMountPath,
-				"readOnly":  true,
-			},
-		},
+		"volumeMounts": agentVolumeMounts,
 	}
 
 	if res := tmpl.GetResources(); res != nil {
 		container["resources"] = buildResources(res, spec.GetGpu())
 	}
 
-	podSpec := map[string]interface{}{
-		"initContainers": []interface{}{initContainer},
-		"containers":     []interface{}{container},
-		"serviceAccountName": "openshell-sandbox",
-		"volumes": []interface{}{
-			map[string]interface{}{
-				"name":     "supervisor-bin",
-				"emptyDir": map[string]interface{}{},
-			},
+	volumes := []interface{}{
+		map[string]interface{}{
+			"name":     "supervisor-bin",
+			"emptyDir": map[string]interface{}{},
 		},
+	}
+	if p.cfg.TLSCASecret != "" {
+		volumes = append(volumes, map[string]interface{}{
+			"name": "tls-ca",
+			"secret": map[string]interface{}{
+				"secretName": p.cfg.TLSCASecret,
+				"items": []interface{}{
+					map[string]interface{}{
+						"key":  "ca.crt",
+						"path": "ca.crt",
+					},
+				},
+			},
+		})
+	}
+	if p.cfg.TLSClientSecret != "" {
+		volumes = append(volumes, map[string]interface{}{
+			"name": "tls-client",
+			"secret": map[string]interface{}{
+				"secretName": p.cfg.TLSClientSecret,
+			},
+		})
+	}
+
+	podSpec := map[string]interface{}{
+		"initContainers":     []interface{}{initContainer},
+		"containers":         []interface{}{container},
+		"serviceAccountName": "openshell-sandbox",
+		"volumes":            volumes,
 	}
 
 	// Apply platform_config passthrough fields.
@@ -294,9 +336,10 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 	}
 
 	podLabels := mergeMaps(tmpl.GetLabels(), map[string]string{
-		labelSandboxID: sb.GetId(),
-		labelManagedBy: "openshell",
-		labelKagenti:   "agent",
+		labelSandboxID:     sb.GetId(),
+		labelManagedBy:     "openshell",
+		labelKagenti:       "agent",
+		labelKagentiInject: "disabled",
 	})
 	if p.cfg.Tenant != "" {
 		podLabels[labelTenant] = p.cfg.Tenant
@@ -321,16 +364,26 @@ func (p *K8sProvisioner) buildFullEnvList(
 	envList := buildEnvList(spec.GetEnvironment(), tmpl.GetEnvironment())
 
 	gatewayEnv := map[string]string{
-		"OPENSHELL_SANDBOX_ID":      sb.GetId(),
-		"OPENSHELL_SANDBOX":         sb.GetName(),
-		"OPENSHELL_SANDBOX_COMMAND": "sleep infinity",
+		"OPENSHELL_SANDBOX_ID":         sb.GetId(),
+		"OPENSHELL_SANDBOX":            sb.GetName(),
+		"OPENSHELL_SANDBOX_COMMAND":    "sleep infinity",
+		"OPENSHELL_SSH_SOCKET_PATH":    "/tmp/openshell-ssh.sock",
 	}
 	if p.cfg.GatewayEndpoint != "" {
 		gatewayEnv["OPENSHELL_ENDPOINT"] = p.cfg.GatewayEndpoint
 	}
+	if p.cfg.TLSCASecret != "" {
+		gatewayEnv["OPENSHELL_TLS_CA"] = "/tls/ca/ca.crt"
+	}
+	if p.cfg.TLSClientSecret != "" {
+		gatewayEnv["OPENSHELL_TLS_CERT"] = "/tls/client/tls.crt"
+		gatewayEnv["OPENSHELL_TLS_KEY"] = "/tls/client/tls.key"
+	}
 
-	gatewayEnv["ANTHROPIC_BASE_URL"] = "https://inference.local/v1"
+	gatewayEnv["OPENSHELL_LOG_LEVEL"] = "debug"
+	gatewayEnv["ANTHROPIC_BASE_URL"] = "https://inference.local"
 	gatewayEnv["OPENAI_BASE_URL"] = "https://inference.local/v1"
+	gatewayEnv["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
 
 	for k, v := range gatewayEnv {
 		envList = append(envList, map[string]interface{}{
@@ -338,6 +391,17 @@ func (p *K8sProvisioner) buildFullEnvList(
 			"value": v,
 		})
 	}
+
+	// SSH handshake secret sourced from the gateway secrets
+	envList = append(envList, map[string]interface{}{
+		"name": "OPENSHELL_SSH_HANDSHAKE_SECRET",
+		"valueFrom": map[string]interface{}{
+			"secretKeyRef": map[string]interface{}{
+				"name": "openshell-gateway-secrets",
+				"key":  "ssh-handshake-secret",
+			},
+		},
+	})
 
 	return envList
 }
