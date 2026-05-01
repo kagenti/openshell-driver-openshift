@@ -36,6 +36,10 @@ func main() {
 		"Mount path for the supervisor binary volume in the agent container")
 	flag.StringVar(&cfg.GatewayEndpoint, "gateway-endpoint", cfg.GatewayEndpoint,
 		"Gateway gRPC endpoint for supervisor callback (OPENSHELL_ENDPOINT)")
+	flag.StringVar(&cfg.TLSCASecret, "tls-ca-secret", cfg.TLSCASecret,
+		"Secret name containing ca.crt for sandbox TLS verification (OPENSHELL_TLS_CA)")
+	flag.StringVar(&cfg.TLSClientSecret, "tls-client-secret", cfg.TLSClientSecret,
+		"Secret name containing tls.crt and tls.key for sandbox mTLS client auth")
 	flag.Parse()
 
 	if cfg.Tenant == "" {
