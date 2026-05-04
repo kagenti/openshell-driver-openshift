@@ -40,6 +40,8 @@ func main() {
 		"Secret name containing ca.crt for sandbox TLS verification (OPENSHELL_TLS_CA)")
 	flag.StringVar(&cfg.TLSClientSecret, "tls-client-secret", cfg.TLSClientSecret,
 		"Secret name containing tls.crt and tls.key for sandbox mTLS client auth")
+	flag.StringVar(&cfg.ImagePullPolicy, "sandbox-image-pull-policy", cfg.ImagePullPolicy,
+		"Image pull policy for sandbox pod containers (Always, IfNotPresent, Never); empty uses K8s default")
 	flag.Parse()
 
 	if cfg.Tenant == "" {

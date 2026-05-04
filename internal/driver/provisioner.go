@@ -248,6 +248,9 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 			},
 		},
 	}
+	if p.cfg.ImagePullPolicy != "" {
+		initContainer["imagePullPolicy"] = p.cfg.ImagePullPolicy
+	}
 
 	// Agent container runs the supervisor and mounts it read-only.
 	agentVolumeMounts := []interface{}{
@@ -285,6 +288,9 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 			},
 		},
 		"volumeMounts": agentVolumeMounts,
+	}
+	if p.cfg.ImagePullPolicy != "" {
+		container["imagePullPolicy"] = p.cfg.ImagePullPolicy
 	}
 
 	if res := tmpl.GetResources(); res != nil {
