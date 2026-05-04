@@ -379,3 +379,83 @@ func TestK8sProvisioner_Watch_ChannelCloses(t *testing.T) {
 	for range ch {
 	}
 }
+
+func TestBuildSandboxSpec_ImagePullPolicy(t *testing.T) {
+	cfg := testConfig()
+	cfg.ImagePullPolicy = "IfNotPresent"
+
+	logger := testLogger()
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		scheme,
+		map[schema.GroupVersionResource]string{sandboxGVR: "SandboxList"},
+	)
+	clientset := kubefake.NewSimpleClientset()
+	p := NewK8sProvisioner(dynClient, clientset, cfg, logger)
+
+	sb := &pb.DriverSandbox{
+		Id: "sb-pull",
+		Spec: &pb.DriverSandboxSpec{
+			Template: &pb.DriverSandboxTemplate{
+				Image: "agent:latest",
+			},
+		},
+	}
+
+	spec := p.buildSandboxSpec(sb)
+	podTemplate := spec["podTemplate"].(map[string]interface{})
+	podSpec := podTemplate["spec"].(map[string]interface{})
+
+	// Verify init container has imagePullPolicy set.
+	initContainers := podSpec["initContainers"].([]interface{})
+	initC := initContainers[0].(map[string]interface{})
+	if initC["imagePullPolicy"] != "IfNotPresent" {
+		t.Errorf("expected init container imagePullPolicy=IfNotPresent, got %v", initC["imagePullPolicy"])
+	}
+
+	// Verify agent container has imagePullPolicy set.
+	containers := podSpec["containers"].([]interface{})
+	agentC := containers[0].(map[string]interface{})
+	if agentC["imagePullPolicy"] != "IfNotPresent" {
+		t.Errorf("expected agent container imagePullPolicy=IfNotPresent, got %v", agentC["imagePullPolicy"])
+	}
+}
+
+func TestBuildSandboxSpec_ImagePullPolicy_Empty(t *testing.T) {
+	cfg := testConfig()
+	// ImagePullPolicy left empty — should not appear in spec.
+
+	logger := testLogger()
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		scheme,
+		map[schema.GroupVersionResource]string{sandboxGVR: "SandboxList"},
+	)
+	clientset := kubefake.NewSimpleClientset()
+	p := NewK8sProvisioner(dynClient, clientset, cfg, logger)
+
+	sb := &pb.DriverSandbox{
+		Id: "sb-nopull",
+		Spec: &pb.DriverSandboxSpec{
+			Template: &pb.DriverSandboxTemplate{
+				Image: "agent:latest",
+			},
+		},
+	}
+
+	spec := p.buildSandboxSpec(sb)
+	podTemplate := spec["podTemplate"].(map[string]interface{})
+	podSpec := podTemplate["spec"].(map[string]interface{})
+
+	initContainers := podSpec["initContainers"].([]interface{})
+	initC := initContainers[0].(map[string]interface{})
+	if _, ok := initC["imagePullPolicy"]; ok {
+		t.Error("expected no imagePullPolicy on init container when config is empty")
+	}
+
+	containers := podSpec["containers"].([]interface{})
+	agentC := containers[0].(map[string]interface{})
+	if _, ok := agentC["imagePullPolicy"]; ok {
+		t.Error("expected no imagePullPolicy on agent container when config is empty")
+	}
+}

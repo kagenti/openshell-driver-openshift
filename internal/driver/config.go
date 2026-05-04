@@ -10,6 +10,7 @@ type Config struct {
 	GatewayEndpoint      string
 	TLSCASecret          string // Secret name containing ca.crt for gateway TLS verification
 	TLSClientSecret      string // Secret name containing tls.crt and tls.key for mTLS client auth
+	ImagePullPolicy      string // Policy for sandbox pod containers (Always, IfNotPresent, Never); empty means K8s default
 }
 
 func DefaultConfig() Config {
