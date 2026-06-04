@@ -463,3 +463,38 @@ func TestBuildSandboxSpec_ImagePullPolicy_Empty(t *testing.T) {
 		t.Error("expected no imagePullPolicy on agent container when config is empty")
 	}
 }
+
+func TestBuildSandboxSpec_SATokenEnv(t *testing.T) {
+	p := newProvisionerForTest(t)
+
+	sb := &pb.DriverSandbox{
+		Id: "sb-token",
+		Spec: &pb.DriverSandboxSpec{
+			Template: &pb.DriverSandboxTemplate{
+				Image: "agent:latest",
+			},
+		},
+	}
+
+	spec := p.buildSandboxSpec(sb)
+	podTemplate := spec["podTemplate"].(map[string]interface{})
+	podSpec := podTemplate["spec"].(map[string]interface{})
+	containers := podSpec["containers"].([]interface{})
+	agentC := containers[0].(map[string]interface{})
+	envList := agentC["env"].([]interface{})
+
+	var found bool
+	for _, e := range envList {
+		env := e.(map[string]interface{})
+		if env["name"] == "OPENSHELL_K8S_SA_TOKEN_FILE" {
+			found = true
+			if env["value"] != "/var/run/secrets/kubernetes.io/serviceaccount/token" {
+				t.Errorf("expected SA token path, got %v", env["value"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("OPENSHELL_K8S_SA_TOKEN_FILE env var not found in agent container")
+	}
+}

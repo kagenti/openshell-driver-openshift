@@ -390,6 +390,7 @@ func (p *K8sProvisioner) buildFullEnvList(
 		gatewayEnv["OPENSHELL_TLS_KEY"] = "/tls/client/tls.key"
 	}
 
+	gatewayEnv["OPENSHELL_K8S_SA_TOKEN_FILE"] = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 	gatewayEnv["OPENSHELL_LOG_LEVEL"] = "debug"
 	gatewayEnv["ANTHROPIC_BASE_URL"] = "https://inference.local"
 	gatewayEnv["OPENAI_BASE_URL"] = "https://inference.local/v1"
