@@ -343,6 +343,30 @@ func TestBuildSandboxSpec_Labels(t *testing.T) {
 	}
 }
 
+func TestBuildSandboxSpec_Annotations(t *testing.T) {
+	p := newProvisionerForTest(t)
+
+	sb := &pb.DriverSandbox{
+		Id: "sb-anno-123",
+		Spec: &pb.DriverSandboxSpec{
+			Template: &pb.DriverSandboxTemplate{
+				Image: "img:latest",
+			},
+		},
+	}
+
+	spec := p.buildSandboxSpec(sb)
+	podTemplate := spec["podTemplate"].(map[string]interface{})
+	meta := podTemplate["metadata"].(map[string]interface{})
+	annotations, ok := meta["annotations"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected annotations in podTemplate metadata")
+	}
+	if annotations[annotationSandboxID] != "sb-anno-123" {
+		t.Errorf("expected annotation %s=sb-anno-123, got %v", annotationSandboxID, annotations[annotationSandboxID])
+	}
+}
+
 func TestBuildSandboxSpec_TenantLabels(t *testing.T) {
 	cfg := testConfig()
 	cfg.Tenant = "team1"
