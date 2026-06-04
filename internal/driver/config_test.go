@@ -14,12 +14,17 @@ func TestDefaultConfig(t *testing.T) {
 		{"SupervisorImage", cfg.SupervisorImage, "quay.io/azaalouk/openshell-supervisor:latest"},
 		{"SupervisorBinaryPath", cfg.SupervisorBinaryPath, "/openshell-sandbox"},
 		{"SupervisorMountPath", cfg.SupervisorMountPath, "/opt/openshell/bin"},
+		{"SATokenAudience", cfg.SATokenAudience, "openshell-gateway"},
 	}
 
 	for _, tt := range tests {
 		if tt.got != tt.want {
 			t.Errorf("DefaultConfig().%s = %q, want %q", tt.field, tt.got, tt.want)
 		}
+	}
+
+	if cfg.SATokenTTLSecs != 3600 {
+		t.Errorf("DefaultConfig().SATokenTTLSecs = %d, want 3600", cfg.SATokenTTLSecs)
 	}
 }
 
