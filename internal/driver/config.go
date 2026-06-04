@@ -8,6 +8,8 @@ type Config struct {
 	DtachBinaryPath      string
 	SupervisorMountPath  string
 	GatewayEndpoint      string
+	SATokenAudience      string // audience for the projected SA token volume
+	SATokenTTLSecs       int64  // expiration seconds for the projected SA token
 }
 
 func DefaultConfig() Config {
@@ -17,5 +19,7 @@ func DefaultConfig() Config {
 		SupervisorBinaryPath: "/usr/local/bin/openshell-sandbox",
 		DtachBinaryPath:      "/usr/local/bin/dtach",
 		SupervisorMountPath:  "/opt/openshell/bin",
+		SATokenAudience:      "openshell-gateway",
+		SATokenTTLSecs:       3600,
 	}
 }

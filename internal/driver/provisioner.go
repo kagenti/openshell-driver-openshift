@@ -266,6 +266,11 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 				"mountPath": p.cfg.SupervisorMountPath,
 				"readOnly":  true,
 			},
+			map[string]interface{}{
+				"name":      "openshell-sa-token",
+				"mountPath": "/var/run/secrets/openshell",
+				"readOnly":  true,
+			},
 		},
 	}
 
@@ -281,6 +286,21 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 			map[string]interface{}{
 				"name":     "supervisor-bin",
 				"emptyDir": map[string]interface{}{},
+			},
+			map[string]interface{}{
+				"name": "openshell-sa-token",
+				"projected": map[string]interface{}{
+					"sources": []interface{}{
+						map[string]interface{}{
+							"serviceAccountToken": map[string]interface{}{
+								"audience":          p.cfg.SATokenAudience,
+								"expirationSeconds": p.cfg.SATokenTTLSecs,
+								"path":              "token",
+							},
+						},
+					},
+					"defaultMode": int64(0400),
+				},
 			},
 		},
 	}
@@ -321,9 +341,10 @@ func (p *K8sProvisioner) buildFullEnvList(
 	envList := buildEnvList(spec.GetEnvironment(), tmpl.GetEnvironment())
 
 	gatewayEnv := map[string]string{
-		"OPENSHELL_SANDBOX_ID":      sb.GetId(),
-		"OPENSHELL_SANDBOX":         sb.GetName(),
-		"OPENSHELL_SANDBOX_COMMAND": "sleep infinity",
+		"OPENSHELL_SANDBOX_ID":           sb.GetId(),
+		"OPENSHELL_SANDBOX":              sb.GetName(),
+		"OPENSHELL_SANDBOX_COMMAND":      "sleep infinity",
+		"OPENSHELL_K8S_SA_TOKEN_FILE":    "/var/run/secrets/openshell/token",
 	}
 	if p.cfg.GatewayEndpoint != "" {
 		gatewayEnv["OPENSHELL_ENDPOINT"] = p.cfg.GatewayEndpoint

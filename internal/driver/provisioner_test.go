@@ -243,8 +243,8 @@ func TestBuildSandboxSpec_SupervisorInitContainer(t *testing.T) {
 
 	// Verify volume mounts on agent container.
 	agentMounts := agentC["volumeMounts"].([]interface{})
-	if len(agentMounts) != 1 {
-		t.Fatalf("expected 1 volume mount on agent, got %d", len(agentMounts))
+	if len(agentMounts) != 2 {
+		t.Fatalf("expected 2 volume mounts on agent, got %d", len(agentMounts))
 	}
 	mount := agentMounts[0].(map[string]interface{})
 	if mount["name"] != "supervisor-bin" {
@@ -253,11 +253,21 @@ func TestBuildSandboxSpec_SupervisorInitContainer(t *testing.T) {
 	if mount["readOnly"] != true {
 		t.Error("expected readOnly=true on agent volume mount")
 	}
+	saMount := agentMounts[1].(map[string]interface{})
+	if saMount["name"] != "openshell-sa-token" {
+		t.Errorf("expected mount name openshell-sa-token, got %v", saMount["name"])
+	}
+	if saMount["mountPath"] != "/var/run/secrets/openshell" {
+		t.Errorf("expected mountPath /var/run/secrets/openshell, got %v", saMount["mountPath"])
+	}
+	if saMount["readOnly"] != true {
+		t.Error("expected readOnly=true on SA token volume mount")
+	}
 
 	// Verify volumes.
 	volumes, ok := podSpec["volumes"].([]interface{})
-	if !ok || len(volumes) == 0 {
-		t.Fatal("missing volumes")
+	if !ok || len(volumes) < 2 {
+		t.Fatalf("expected at least 2 volumes, got %d", len(volumes))
 	}
 	vol := volumes[0].(map[string]interface{})
 	if vol["name"] != "supervisor-bin" {
@@ -265,6 +275,32 @@ func TestBuildSandboxSpec_SupervisorInitContainer(t *testing.T) {
 	}
 	if _, ok := vol["emptyDir"]; !ok {
 		t.Error("expected emptyDir volume")
+	}
+	saVol := volumes[1].(map[string]interface{})
+	if saVol["name"] != "openshell-sa-token" {
+		t.Errorf("expected volume name openshell-sa-token, got %v", saVol["name"])
+	}
+	projected, ok := saVol["projected"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected projected volume")
+	}
+	sources, ok := projected["sources"].([]interface{})
+	if !ok || len(sources) == 0 {
+		t.Fatal("expected projected sources")
+	}
+	src := sources[0].(map[string]interface{})
+	saToken, ok := src["serviceAccountToken"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected serviceAccountToken source")
+	}
+	if saToken["audience"] != cfg.SATokenAudience {
+		t.Errorf("expected audience %s, got %v", cfg.SATokenAudience, saToken["audience"])
+	}
+	if saToken["expirationSeconds"] != cfg.SATokenTTLSecs {
+		t.Errorf("expected expirationSeconds %d, got %v", cfg.SATokenTTLSecs, saToken["expirationSeconds"])
+	}
+	if saToken["path"] != "token" {
+		t.Errorf("expected path token, got %v", saToken["path"])
 	}
 }
 
@@ -335,6 +371,42 @@ func TestBuildSandboxSpec_TenantLabels(t *testing.T) {
 	}
 	if podLabels[labelKagentiTeam] != "team1" {
 		t.Errorf("expected %s=team1, got %v", labelKagentiTeam, podLabels[labelKagentiTeam])
+	}
+}
+
+func TestBuildSandboxSpec_SATokenEnvVar(t *testing.T) {
+	p := newProvisionerForTest(t)
+
+	sb := &pb.DriverSandbox{
+		Id:   "sb-token",
+		Name: "token-test",
+		Spec: &pb.DriverSandboxSpec{
+			Template: &pb.DriverSandboxTemplate{
+				Image: "agent:latest",
+			},
+		},
+	}
+
+	spec := p.buildSandboxSpec(sb)
+	podTemplate := spec["podTemplate"].(map[string]interface{})
+	podSpec := podTemplate["spec"].(map[string]interface{})
+	containers := podSpec["containers"].([]interface{})
+	agentC := containers[0].(map[string]interface{})
+	envList := agentC["env"].([]interface{})
+
+	found := false
+	for _, e := range envList {
+		env := e.(map[string]interface{})
+		if env["name"] == "OPENSHELL_K8S_SA_TOKEN_FILE" {
+			found = true
+			if env["value"] != "/var/run/secrets/openshell/token" {
+				t.Errorf("expected /var/run/secrets/openshell/token, got %v", env["value"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("OPENSHELL_K8S_SA_TOKEN_FILE env var not found in agent container")
 	}
 }
 
