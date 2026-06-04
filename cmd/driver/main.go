@@ -36,6 +36,10 @@ func main() {
 		"Mount path for the supervisor binary volume in the agent container")
 	flag.StringVar(&cfg.GatewayEndpoint, "gateway-endpoint", cfg.GatewayEndpoint,
 		"Gateway gRPC endpoint for supervisor callback (OPENSHELL_ENDPOINT)")
+	flag.StringVar(&cfg.SATokenAudience, "sa-token-audience", cfg.SATokenAudience,
+		"Audience for the projected ServiceAccount token injected into sandbox pods")
+	flag.Int64Var(&cfg.SATokenTTLSecs, "sa-token-ttl-secs", cfg.SATokenTTLSecs,
+		"Expiration (seconds) for the projected ServiceAccount token")
 	flag.Parse()
 
 	if cfg.Tenant == "" {
