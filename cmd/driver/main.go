@@ -30,8 +30,6 @@ func main() {
 		"Container image that contains the supervisor binary")
 	flag.StringVar(&cfg.SupervisorBinaryPath, "supervisor-binary-path", cfg.SupervisorBinaryPath,
 		"Path to the supervisor binary inside the supervisor image")
-	flag.StringVar(&cfg.DtachBinaryPath, "dtach-binary-path", cfg.DtachBinaryPath,
-		"Path to the dtach binary inside the supervisor image")
 	flag.StringVar(&cfg.SupervisorMountPath, "supervisor-mount-path", cfg.SupervisorMountPath,
 		"Mount path for the supervisor binary volume in the agent container")
 	flag.StringVar(&cfg.GatewayEndpoint, "gateway-endpoint", cfg.GatewayEndpoint,

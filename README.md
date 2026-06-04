@@ -51,11 +51,13 @@ See [docs/why-init-container.md](docs/why-init-container.md) for the full ration
 # What the driver produces in the pod spec:
 initContainers:
   - name: supervisor-init
-    image: ghcr.io/nvidia/openshell-community/supervisor:latest
-    command: ["cp", "/usr/local/bin/openshell-sandbox", "/opt/openshell/bin/"]
+    image: ghcr.io/kagenti/openshell/supervisor:mvp-v2
+    command: ["/openshell-sandbox", "copy-self", "/opt/openshell/bin/openshell-sandbox"]
+    securityContext:
+      runAsUser: 0
 containers:
   - name: agent
-    command: ["/opt/openshell/bin/openshell-sandbox"]  # supervisor runs first
+    command: ["/opt/openshell/bin/openshell-sandbox"]
     securityContext:
       runAsUser: 0
       capabilities:
@@ -124,8 +126,8 @@ openshell-gateway --compute-driver-socket /var/run/openshell-driver.sock
 |------|---------|---------|
 | `--socket` | `/var/run/openshell-driver.sock` | UDS path for gRPC |
 | `--namespace` | `openshell-system` | K8s namespace for sandboxes |
-| `--supervisor-image` | `ghcr.io/nvidia/openshell-community/supervisor:latest` | Supervisor OCI image |
-| `--supervisor-binary-path` | `/usr/local/bin/openshell-sandbox` | Binary path inside supervisor image |
+| `--supervisor-image` | `ghcr.io/kagenti/openshell/supervisor:mvp-v2` | Supervisor OCI image |
+| `--supervisor-binary-path` | `/openshell-sandbox` | Binary path inside supervisor image |
 | `--supervisor-mount-path` | `/opt/openshell/bin` | Mount point in agent container |
 
 ## Gateway dependency
