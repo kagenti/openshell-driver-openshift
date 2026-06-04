@@ -26,13 +26,15 @@ Additionally, a DaemonSet to pre-stage the binary on every node requires its own
 
 ## Our approach
 
-We use an init container that copies the supervisor binary from a container image into an emptyDir volume shared with the agent container:
+We use an init container that copies the supervisor binary from a container image into an emptyDir volume shared with the agent container. The supervisor binary's built-in `copy-self` subcommand handles the copy without requiring a shell or coreutils in the image (it's a scratch/distroless image):
 
 ```yaml
 initContainers:
   - name: supervisor-init
-    image: ghcr.io/nvidia/openshell-community/supervisor:latest
-    command: ["cp", "/usr/local/bin/openshell-sandbox", "/opt/openshell/bin/"]
+    image: ghcr.io/kagenti/openshell/supervisor:mvp-v2
+    command: ["/openshell-sandbox", "copy-self", "/opt/openshell/bin/openshell-sandbox"]
+    securityContext:
+      runAsUser: 0
     volumeMounts:
       - name: supervisor-bin
         mountPath: /opt/openshell/bin
@@ -56,7 +58,7 @@ volumes:
 |---|---|---|
 | SCC requirement | Needs hostPath access (custom or privileged SCC) | Works without hostPath |
 | Node pre-staging | Required (DaemonSet or baked into node image) | Not required |
-| Cold start cost | None (binary already on node) | One `cp` command (~15MB, <1 second) |
+| Cold start cost | None (binary already on node) | One `copy-self` invocation (~15MB, <1 second) |
 | Image pull | None (binary on node filesystem) | One pull per node (cached after first) |
 | Supervisor version | Tied to what's on the node | Tied to init container image tag |
 | BYOC compatibility | Works with any agent image | Works with any agent image |

@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"strings"
 	"testing"
 
 	pb "github.com/zanetworker/openshell-driver-openshift/gen/computev1"
@@ -186,17 +185,22 @@ func TestBuildSandboxSpec_SupervisorInitContainer(t *testing.T) {
 		t.Errorf("expected image %s, got %v", cfg.SupervisorImage, initC["image"])
 	}
 
-	// Verify command copies both supervisor and dtach binaries via sh -c.
+	// Verify command uses copy-self (no shell required — works with scratch images).
 	cmd := initC["command"].([]interface{})
-	if len(cmd) != 3 || cmd[0] != "sh" || cmd[1] != "-c" {
-		t.Errorf("expected sh -c command, got %v", cmd)
+	expectedInitCmd := []string{cfg.SupervisorBinaryPath, "copy-self", cfg.SupervisorMountPath + "/openshell-sandbox"}
+	if len(cmd) != 3 {
+		t.Fatalf("expected 3-element command [binary, copy-self, dest], got %v", cmd)
 	}
-	script := cmd[2].(string)
-	if !strings.Contains(script, cfg.SupervisorBinaryPath) {
-		t.Errorf("expected script to contain supervisor path %s, got %s", cfg.SupervisorBinaryPath, script)
+	for i, want := range expectedInitCmd {
+		if cmd[i] != want {
+			t.Errorf("command[%d] = %v, want %s", i, cmd[i], want)
+		}
 	}
-	if !strings.Contains(script, cfg.DtachBinaryPath) {
-		t.Errorf("expected script to contain dtach path %s, got %s", cfg.DtachBinaryPath, script)
+
+	// Verify init container has runAsUser: 0.
+	initSecCtx := initC["securityContext"].(map[string]interface{})
+	if initSecCtx["runAsUser"] != int64(0) {
+		t.Errorf("expected init container runAsUser 0, got %v", initSecCtx["runAsUser"])
 	}
 
 	// Verify agent container runs supervisor.

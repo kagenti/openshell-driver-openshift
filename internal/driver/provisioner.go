@@ -231,15 +231,19 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 	spec := sb.GetSpec()
 	tmpl := spec.GetTemplate()
 
-	// Supervisor init container copies both the supervisor and dtach binaries into the shared volume.
+	// Supervisor init container uses copy-self to install the binary into the shared volume.
+	// This avoids requiring sh/cp in the supervisor image (which is scratch/distroless).
+	installedPath := p.cfg.SupervisorMountPath + "/openshell-sandbox"
 	initContainer := map[string]interface{}{
 		"name":  "supervisor-init",
 		"image": p.cfg.SupervisorImage,
 		"command": []interface{}{
-			"sh", "-c",
-			fmt.Sprintf("cp %s %s/ && cp %s %s/",
-				p.cfg.SupervisorBinaryPath, p.cfg.SupervisorMountPath,
-				p.cfg.DtachBinaryPath, p.cfg.SupervisorMountPath),
+			p.cfg.SupervisorBinaryPath,
+			"copy-self",
+			installedPath,
+		},
+		"securityContext": map[string]interface{}{
+			"runAsUser": int64(0),
 		},
 		"volumeMounts": []interface{}{
 			map[string]interface{}{

@@ -5,7 +5,6 @@ type Config struct {
 	Tenant               string // openshell.ai/tenant and kagenti.io/team label value; defaults to Namespace if empty
 	SupervisorImage      string
 	SupervisorBinaryPath string
-	DtachBinaryPath      string
 	SupervisorMountPath  string
 	GatewayEndpoint      string
 	TLSCASecret          string // Secret name containing ca.crt for gateway TLS verification
@@ -17,8 +16,7 @@ func DefaultConfig() Config {
 	return Config{
 		Namespace:            "openshell-system",
 		SupervisorImage:      "quay.io/azaalouk/openshell-supervisor:latest",
-		SupervisorBinaryPath: "/usr/local/bin/openshell-sandbox",
-		DtachBinaryPath:      "/usr/local/bin/dtach",
+		SupervisorBinaryPath: "/openshell-sandbox",
 		SupervisorMountPath:  "/opt/openshell/bin",
 	}
 }
