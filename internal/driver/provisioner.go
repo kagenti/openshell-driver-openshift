@@ -28,6 +28,7 @@ const (
 	labelKagentiInject  = "kagenti.io/inject"
 	labelTenant         = "openshell.ai/tenant"
 	labelKagentiTeam    = "kagenti.io/team"
+	annotationSandboxID = "openshell.io/sandbox-id"
 )
 
 // K8sProvisioner implements SandboxProvisioner using the Kubernetes API. It
@@ -380,10 +381,15 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 		podLabels[labelKagentiTeam] = p.cfg.Tenant
 	}
 
+	podAnnotations := map[string]interface{}{
+		annotationSandboxID: sb.GetId(),
+	}
+
 	return map[string]interface{}{
 		"podTemplate": map[string]interface{}{
 			"metadata": map[string]interface{}{
-				"labels": podLabels,
+				"labels":      podLabels,
+				"annotations": podAnnotations,
 			},
 			"spec": podSpec,
 		},
