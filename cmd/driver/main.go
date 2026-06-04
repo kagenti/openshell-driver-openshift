@@ -40,6 +40,10 @@ func main() {
 		"Secret name containing tls.crt and tls.key for sandbox mTLS client auth")
 	flag.StringVar(&cfg.ImagePullPolicy, "sandbox-image-pull-policy", cfg.ImagePullPolicy,
 		"Image pull policy for sandbox pod containers (Always, IfNotPresent, Never); empty uses K8s default")
+	flag.StringVar(&cfg.SATokenAudience, "sa-token-audience", cfg.SATokenAudience,
+		"Audience for the projected ServiceAccount token injected into sandbox pods")
+	flag.Int64Var(&cfg.SATokenTTLSecs, "sa-token-ttl-secs", cfg.SATokenTTLSecs,
+		"Expiration (seconds) for the projected ServiceAccount token")
 	flag.Parse()
 
 	if cfg.Tenant == "" {

@@ -278,6 +278,13 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 			"readOnly":  true,
 		})
 	}
+	if p.cfg.SATokenAudience != "" {
+		agentVolumeMounts = append(agentVolumeMounts, map[string]interface{}{
+			"name":      "openshell-sa-token",
+			"mountPath": "/var/run/secrets/openshell",
+			"readOnly":  true,
+		})
+	}
 
 	container := map[string]interface{}{
 		"name":    "agent",
@@ -326,6 +333,23 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 			"name": "tls-client",
 			"secret": map[string]interface{}{
 				"secretName": p.cfg.TLSClientSecret,
+			},
+		})
+	}
+	if p.cfg.SATokenAudience != "" {
+		volumes = append(volumes, map[string]interface{}{
+			"name": "openshell-sa-token",
+			"projected": map[string]interface{}{
+				"sources": []interface{}{
+					map[string]interface{}{
+						"serviceAccountToken": map[string]interface{}{
+							"audience":          p.cfg.SATokenAudience,
+							"expirationSeconds": p.cfg.SATokenTTLSecs,
+							"path":              "token",
+						},
+					},
+				},
+				"defaultMode": int64(0400),
 			},
 		})
 	}
@@ -390,7 +414,7 @@ func (p *K8sProvisioner) buildFullEnvList(
 		gatewayEnv["OPENSHELL_TLS_KEY"] = "/tls/client/tls.key"
 	}
 
-	gatewayEnv["OPENSHELL_K8S_SA_TOKEN_FILE"] = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	gatewayEnv["OPENSHELL_K8S_SA_TOKEN_FILE"] = "/var/run/secrets/openshell/token"
 	gatewayEnv["OPENSHELL_LOG_LEVEL"] = "debug"
 	gatewayEnv["ANTHROPIC_BASE_URL"] = "https://inference.local"
 	gatewayEnv["OPENAI_BASE_URL"] = "https://inference.local/v1"

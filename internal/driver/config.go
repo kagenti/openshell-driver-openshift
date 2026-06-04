@@ -10,6 +10,8 @@ type Config struct {
 	TLSCASecret          string // Secret name containing ca.crt for gateway TLS verification
 	TLSClientSecret      string // Secret name containing tls.crt and tls.key for mTLS client auth
 	ImagePullPolicy      string // Policy for sandbox pod containers (Always, IfNotPresent, Never); empty means K8s default
+	SATokenAudience      string // audience for the projected SA token volume
+	SATokenTTLSecs       int64  // expiration seconds for the projected SA token
 }
 
 func DefaultConfig() Config {
@@ -18,5 +20,7 @@ func DefaultConfig() Config {
 		SupervisorImage:      "quay.io/azaalouk/openshell-supervisor:latest",
 		SupervisorBinaryPath: "/openshell-sandbox",
 		SupervisorMountPath:  "/opt/openshell/bin",
+		SATokenAudience:      "openshell-gateway",
+		SATokenTTLSecs:       3600,
 	}
 }
