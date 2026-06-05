@@ -356,10 +356,11 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 	}
 
 	podSpec := map[string]interface{}{
-		"initContainers":     []interface{}{initContainer},
-		"containers":         []interface{}{container},
-		"serviceAccountName": "openshell-sandbox",
-		"volumes":            volumes,
+		"shareProcessNamespace": true,
+		"initContainers":        []interface{}{initContainer},
+		"containers":            []interface{}{container},
+		"serviceAccountName":    "openshell-sandbox",
+		"volumes":               volumes,
 	}
 
 	// Apply platform_config passthrough fields.
