@@ -28,7 +28,8 @@ const (
 	labelKagentiInject  = "kagenti.io/inject"
 	labelTenant         = "openshell.ai/tenant"
 	labelKagentiTeam    = "kagenti.io/team"
-	annotationSandboxID = "openshell.io/sandbox-id"
+	annotationSandboxID            = "openshell.io/sandbox-id"
+	annotationBypassInboundCapture = "ambient.istio.io/bypass-inbound-capture"
 )
 
 // K8sProvisioner implements SandboxProvisioner using the Kubernetes API. It
@@ -383,6 +384,10 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 
 	podAnnotations := map[string]interface{}{
 		annotationSandboxID: sb.GetId(),
+		// Bypass Istio ambient inbound capture so ztunnel (HBONE mode) does not
+		// re-originate veth-pair connections from the pod's main IP, which breaks
+		// the proxy's /proc/net/tcp identity resolution.
+		annotationBypassInboundCapture: "true",
 	}
 
 	return map[string]interface{}{
