@@ -365,6 +365,9 @@ func TestBuildSandboxSpec_Annotations(t *testing.T) {
 	if annotations[annotationSandboxID] != "sb-anno-123" {
 		t.Errorf("expected annotation %s=sb-anno-123, got %v", annotationSandboxID, annotations[annotationSandboxID])
 	}
+	if annotations[annotationBypassInboundCapture] != "true" {
+		t.Errorf("expected annotation %s=true, got %v", annotationBypassInboundCapture, annotations[annotationBypassInboundCapture])
+	}
 }
 
 func TestBuildSandboxSpec_TenantLabels(t *testing.T) {
