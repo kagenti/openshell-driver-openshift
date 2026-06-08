@@ -374,6 +374,30 @@ func TestBuildSandboxSpec_TenantLabels(t *testing.T) {
 	}
 }
 
+func TestBuildSandboxSpec_IstioBypassAnnotation(t *testing.T) {
+	p := newProvisionerForTest(t)
+
+	sb := &pb.DriverSandbox{
+		Id: "sb-istio",
+		Spec: &pb.DriverSandboxSpec{
+			Template: &pb.DriverSandboxTemplate{
+				Image: "img:latest",
+			},
+		},
+	}
+
+	spec := p.buildSandboxSpec(sb)
+	podTemplate := spec["podTemplate"].(map[string]interface{})
+	meta := podTemplate["metadata"].(map[string]interface{})
+	annotations, ok := meta["annotations"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected annotations in podTemplate metadata")
+	}
+	if annotations["ambient.istio.io/bypass-inbound-capture"] != "true" {
+		t.Errorf("expected ambient bypass annotation, got %v", annotations["ambient.istio.io/bypass-inbound-capture"])
+	}
+}
+
 func TestBuildSandboxSpec_SATokenEnvVar(t *testing.T) {
 	p := newProvisionerForTest(t)
 

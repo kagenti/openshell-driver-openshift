@@ -323,10 +323,19 @@ func (p *K8sProvisioner) buildSandboxSpec(sb *pb.DriverSandbox) map[string]inter
 		podLabels[labelKagentiTeam] = p.cfg.Tenant
 	}
 
+	podAnnotations := map[string]interface{}{
+		// Bypass Istio ambient inbound capture for sandbox pods. Without this,
+		// ztunnel (HBONE mode on OpenShift) re-originates veth-pair connections
+		// from the pod's main IP, breaking the proxy's /proc/net/tcp identity
+		// resolution which relies on seeing the sandbox's 10.200.0.2 source.
+		"ambient.istio.io/bypass-inbound-capture": "true",
+	}
+
 	return map[string]interface{}{
 		"podTemplate": map[string]interface{}{
 			"metadata": map[string]interface{}{
-				"labels": podLabels,
+				"labels":      podLabels,
+				"annotations": podAnnotations,
 			},
 			"spec": podSpec,
 		},
